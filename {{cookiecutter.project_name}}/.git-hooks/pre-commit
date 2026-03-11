@@ -18,4 +18,4 @@ done
 
 cd "${ORIGIN}" || exit
 terraform fmt -recursive .
-git add .
+git diff --cached --name-only --diff-filter=ACM | xargs git add
