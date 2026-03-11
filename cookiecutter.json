@@ -1,0 +1,16 @@
+{
+  "project_name_full": "__REPLACE_ME_project-name",
+  "project_name": "{{ cookiecutter.project_name_full.lower().replace(' ', '-') }}",
+  "author_name": "",
+  "author_handle": "",
+  "author_id": "{{ cookiecutter.author_handle.replace('@', '') }}",
+  "author_link": "",
+  "tfstate_bucket": "__REPLACE_ME_tfstate-bucket",
+  "tfstate_kms_key_name": "__REPLACE_ME_key-name",
+  "aws_region": "us-east-1",
+  "aws_account_alias_dev": "__REPLACE_ME_account-alias-dev",
+  "aws_account_alias_live": "__REPLACE_ME_account-alias-live",
+  "aws_account_alias_shared": "__REPLACE_ME_account-alias-shared",
+  "iam_role_arn": "__REPLACE_ME_role-arn",
+  "git_init": true
+}

@@ -1,0 +1,11 @@
+.terraform
+*.tfvars*
+*.tfstate*
+
+*.diff
+*.bak
+*.kubeconfig*
+
+.DS_Store
+.envrc
+.external_modules/

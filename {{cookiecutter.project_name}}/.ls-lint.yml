@@ -1,0 +1,15 @@
+---
+ls:
+  .dir: kebab-case
+  .*: kebab-case
+  .md: kebab-case | screamingsnakecase
+  .git-hooks:
+    .dir: lowercase
+    .*: kebab-case
+  .cicd:
+    .dir: lowercase
+    .*: kebab-case
+
+ignore:
+  - .git
+  - "**/*.bak"

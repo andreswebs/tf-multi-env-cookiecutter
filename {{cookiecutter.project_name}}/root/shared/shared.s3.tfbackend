@@ -1,0 +1,10 @@
+region         = "{{ cookiecutter.aws_region }}"
+bucket         = "{{ cookiecutter.tfstate_bucket }}"
+key            = "{{ cookiecutter.aws_account_alias_dev }}/{{ cookiecutter.project_name }}/{{ cookiecutter.aws_region }}/terraform.tfstate"
+use_lockfile   = true
+encrypt        = true
+kms_key_id     = "alias/{{ cookiecutter.tfstate_kms_key_name }}"
+
+assume_role    = {
+  role_arn = "{{ cookiecutter.iam_role_arn }}"
+}

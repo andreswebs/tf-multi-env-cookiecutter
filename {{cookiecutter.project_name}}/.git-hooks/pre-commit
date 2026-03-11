@@ -1,0 +1,21 @@
+#!/bin/sh
+
+set -o errexit
+set -o nounset
+
+ORIGIN="$(pwd)"
+TF_ORIGIN="${ORIGIN}"
+
+tf_docs() {
+  terraform-docs --config "${ORIGIN}/.terraform-docs.yml" "${1}"
+}
+
+find "${TF_ORIGIN}"  -type f -name "README.md" | while read -r f; do
+  if [ -r "${f}" ]; then
+    tf_docs "$(dirname "${f}")"
+  fi
+done
+
+cd "${ORIGIN}" || exit
+terraform fmt -recursive .
+git add .

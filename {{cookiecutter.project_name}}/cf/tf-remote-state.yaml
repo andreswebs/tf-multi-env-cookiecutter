@@ -1,0 +1,314 @@
+---
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: S3 bucket, KMS key, and DynamoDB table (deprecated) for Terraform remote state
+
+Metadata:
+  AWS::CloudFormation::Interface:
+    ParameterLabels:
+      TableName:
+        default: Table Name
+      BucketName:
+        default: Bucket Name
+      KeyName:
+        default: Key Name
+      BucketParameterName:
+        default: Bucket Parameter Name
+      TableParameterName:
+        default: Table Parameter Name
+      CreateTable:
+        default: Create Table?
+      KeyParameterName:
+        default: Key Parameter Name
+      PolicyName:
+        default: IAM Policy Name
+      PolicyPath:
+        default: Policy Path
+    ParameterGroups:
+      - Label:
+          default: Configuration
+        Parameters:
+          - BucketName
+          - TableName
+          - CreateTable
+          - KeyName
+          - BucketParameterName
+          - TableParameterName
+          - KeyParameterName
+          - PolicyName
+          - PolicyPath
+
+Parameters:
+  BucketName:
+    Description: Name of the S3 bucket
+    Type: String
+    Default: ""
+
+  TableName:
+    Description: Name of the DynamoDB table
+    Type: String
+    Default: ""
+
+  CreateTable:
+    Description: Whether to create a DynamoDB table
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+
+  KeyName:
+    Description: Name of the KMS key in `alias/<KeyName>`
+    Type: String
+    Default: tfstate
+
+  BucketParameterName:
+    Type: String
+    Description: (Optional) Name of an SSM parameter to store the bucket name
+    Default: ""
+
+  TableParameterName:
+    Type: String
+    Description: (Optional) Name of an SSM parameter to store the table name
+    Default: ""
+
+  KeyParameterName:
+    Type: String
+    Description: (Optional) Name of an SSM parameter to store the key name
+    Default: ""
+
+  PolicyName:
+    Type: String
+    Description: (Optional) Name of created managed IAM policy
+    Default: ""
+
+  PolicyPath:
+    Type: String
+    Description: The prefix path for the policy
+    Default: /
+
+Conditions:
+  GenerateBucketName: !Equals [!Ref BucketName, ""]
+  GenerateTableName: !Equals [!Ref TableName, ""]
+  HasTable: !Equals [!Ref CreateTable, "true"]
+  GenerateBucketParameter: !Not [!Equals [!Ref BucketParameterName, ""]]
+  GenerateTableParameter:
+    !And [
+      !Equals [!Ref CreateTable, "true"],
+      !Not [!Equals [!Ref TableParameterName, ""]],
+    ]
+  GenerateKeyParameter: !Not [!Equals [!Ref KeyParameterName, ""]]
+  GeneratePolicyName: !Equals [!Ref PolicyName, ""]
+
+Resources:
+  KmsKey:
+    Type: AWS::KMS::Key
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Description: KMS key for S3 encryption
+      KeyPolicy:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub "arn:${AWS::Partition}:iam::${AWS::AccountId}:root"
+            Action:
+              - "kms:*"
+            Resource: "*"
+
+  KeyAlias:
+    Type: AWS::KMS::Alias
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      AliasName: !Sub "alias/${KeyName}"
+      TargetKeyId: !Ref KmsKey
+
+  S3Bucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !If
+        - GenerateBucketName
+        - !Ref AWS::NoValue
+        - !Ref BucketName
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+              KMSMasterKeyID: !Ref KeyAlias
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: NonCurrentVersionHandling
+            Status: Enabled
+            NoncurrentVersionExpirationInDays: 365
+
+  DbTable:
+    Condition: HasTable
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !If
+        - GenerateTableName
+        - !Ref AWS::NoValue
+        - !Ref TableName
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: LockID
+          AttributeType: S
+      KeySchema:
+        - AttributeName: LockID
+          KeyType: HASH
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  BucketParameter:
+    Condition: GenerateBucketParameter
+    Type: AWS::SSM::Parameter
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Type: String
+      Name: !Ref BucketParameterName
+      Value: !Ref S3Bucket
+
+  TableParameter:
+    Condition: GenerateTableParameter
+    Type: AWS::SSM::Parameter
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Type: String
+      Name: !Ref TableParameterName
+      Value: !Ref DbTable
+
+  KeyParameter:
+    Condition: GenerateKeyParameter
+    Type: AWS::SSM::Parameter
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Type: String
+      Name: !Ref KeyParameterName
+      Value: !Ref KeyName
+
+  IAMPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      Path: !Ref PolicyPath
+      ManagedPolicyName: !If
+        - GeneratePolicyName
+        - !Ref AWS::NoValue
+        - !Ref PolicyName
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Action:
+              - s3:ListBucket
+            Resource:
+              - !GetAtt S3Bucket.Arn
+
+          - Effect: Allow
+            Action:
+              - s3:GetObject
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource:
+              - !Sub ${S3Bucket.Arn}/*
+
+          - Effect: Allow
+            Action:
+              - kms:Encrypt
+              - kms:Decrypt
+              - kms:GenerateDataKey
+            Resource:
+              - !GetAtt KmsKey.Arn
+
+          - !If
+            - HasTable
+            - Effect: Allow
+              Action:
+                - dynamodb:DescribeTable
+                - dynamodb:GetItem
+                - dynamodb:PutItem
+                - dynamodb:DeleteItem
+              Resource:
+                - !GetAtt DbTable.Arn
+            - !Ref AWS::NoValue
+
+          - !If
+            - GenerateBucketParameter
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${BucketParameter}
+            - !Ref AWS::NoValue
+
+          - !If
+            - GenerateTableParameter
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TableParameter}
+            - !Ref AWS::NoValue
+
+          - !If
+            - GenerateKeyParameter
+            - Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource:
+                - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${KeyParameter}
+            - !Ref AWS::NoValue
+
+Outputs:
+  BucketName:
+    Description: S3 bucket name
+    Value: !Ref S3Bucket
+  BucketArn:
+    Description: S3 bucket ARN
+    Value: !GetAtt S3Bucket.Arn
+  DbTableName:
+    Condition: HasTable
+    Description: DynamoDB table name
+    Value: !Ref DbTable
+  DbTableArn:
+    Condition: HasTable
+    Description: DynamoDB table ARN
+    Value: !GetAtt DbTable.Arn
+  KeyAlias:
+    Description: KMS Key alias
+    Value: !Ref KeyAlias
+  BucketParameterName:
+    Condition: GenerateBucketParameter
+    Description: Name of the SSM parameter
+    Value: !Ref BucketParameter
+  TableParameterName:
+    Condition: GenerateTableParameter
+    Description: Name of the SSM parameter
+    Value: !Ref TableParameter
+  KeyParameterName:
+    Condition: GenerateKeyParameter
+    Description: Name of the SSM parameter
+    Value: !Ref KeyParameter
+  PolicyArn:
+    Description: IAM Policy ARN
+    Value: !Ref IAMPolicy
